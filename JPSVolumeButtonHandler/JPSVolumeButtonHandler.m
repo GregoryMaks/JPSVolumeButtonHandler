@@ -21,6 +21,7 @@ static CGFloat minVolume                    = 0.00001f;
 @property (nonatomic, strong) AVAudioSession * session;
 @property (nonatomic, strong) MPVolumeView   * volumeView;
 @property (nonatomic, assign) BOOL             appIsActive;
+@property (nonatomic,   copy) dispatch_block_t onAppActivationBlock;
 
 @end
 
@@ -58,7 +59,7 @@ static CGFloat minVolume                    = 0.00001f;
 - (void)setupSession {
     NSError *error = nil;
     self.session = [AVAudioSession sharedInstance];
-    [self.session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:&error];
+    [self.session setCategory:AVAudioSessionCategoryPlayback withOptions:0 error:&error];
     if (error) {
         NSLog(@"%@", error);
         return;
@@ -87,22 +88,26 @@ static CGFloat minVolume                    = 0.00001f;
     NSDictionary *interuptionDict = notification.userInfo;
     NSInteger interuptionType = [[interuptionDict valueForKey:AVAudioSessionInterruptionTypeKey] integerValue];
     switch (interuptionType) {
-        case AVAudioSessionInterruptionTypeBegan:
+        case AVAudioSessionInterruptionTypeBegan: {
             // NSLog(@"Audio Session Interruption case started.");
             break;
-        case AVAudioSessionInterruptionTypeEnded:
-        {
+        }
+        case AVAudioSessionInterruptionTypeEnded: {
             // NSLog(@"Audio Session Interruption case ended.");
-            NSError *error = nil;
-            [self.session setActive:YES error:&error];
-            if (error) {
-                NSLog(@"%@", error);
-            }
+            // We need to postpone activation until our app becomes foreground again, otherwise we are unable to activate audio session
+            self.onAppActivationBlock = ^{
+                NSError *error = nil;
+                [self.session setActive:YES error:&error];
+                if (error) {
+                    NSLog(@"%@", error);
+                }
+            };
             break;
         }
-        default:
+        default: {
             // NSLog(@"Audio Session Interruption Notification case default.");
             break;
+        }
     }
 }
 
@@ -135,6 +140,11 @@ static CGFloat minVolume                    = 0.00001f;
     self.appIsActive = [notification.name isEqualToString:UIApplicationDidBecomeActiveNotification];
     if (self.appIsActive) {
         [self updateInitialVolumeWithDelay];
+
+        if (self.onAppActivationBlock != nil) {
+            self.onAppActivationBlock();
+            self.onAppActivationBlock = nil;
+        }
     }
 }
 
